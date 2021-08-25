@@ -1,49 +1,203 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<title></title>
-		<meta charset="utf-8">
-		<meta name="generator" content="Three.js Editor">
-		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-		<style>
-			body {
-				font-family: sans-serif;
-				font-size: 11px;
-				background-color: #000;
-				margin: 0px;
+
+<head>
+	<title></title>
+	<meta charset="utf-8">
+	<meta name="generator" content="Three.js Editor">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<style>
+		* {
+			box-sizing: border-box;
+			-moz-box-sizing: border-box;
+		}
+
+		body {
+			background-color: #fff;
+			color: #444;
+			margin: 0;
+		}
+
+		a {
+			color: #08f;
+		}
+
+		#content {
+			position: absolute;
+			top: 0;
+			width: 100%;
+			z-index: 1;
+			padding: 3em 0 0 0;
+		}
+
+		#c {
+			position: absolute;
+			left: 0;
+			width: 100%;
+			height: 100%;
+		}
+
+		.list-item {
+			display: inline-block;
+			margin: 1em;
+			padding: 1em;
+			box-shadow: 1px 2px 4px 0px rgba(0, 0, 0, 0.25);
+		}
+
+		.list-item>div:nth-child(1) {
+			width: 200px;
+			height: 200px;
+		}
+
+		.list-item>div:nth-child(2) {
+			color: #888;
+			font-family: sans-serif;
+			font-size: large;
+			width: 200px;
+			margin-top: 0.5em;
+		}
+	</style>
+</head>
+
+<body>
+	<canvas id="c"></canvas>
+
+	<div id="content" />
+	<script type="module">
+
+		import * as THREE from './js/three.module.js';
+		import { APP } from './js/app.js';
+		import { VRButton } from './js/VRButton.js';
+		import { OrbitControls } from './js/OrbitControls.js'
+		let canvas, renderer;
+
+		const scenes = [];
+
+		init();
+
+		function init() {
+			const geometry = new THREE.BoxGeometry(1, 1, 1);
+			canvas = document.getElementById("c");
+
+			for (let i = 0; i < 10; i++) {
+				var fileLoader = new THREE.FileLoader();
+
+				fileLoader.load("app.json", function (text) {
+					var json = JSON.parse(text);
+					var loader = new THREE.ObjectLoader();
+
+					const content = document.getElementById("content");
+
+					var camera, scene;
+
+					scene = loader.parse(json.scene)
+					camera = loader.parse(json.camera)
+
+					// make a list item
+					const element = document.createElement("div");
+					element.className = "list-item";
+
+					const sceneElement = document.createElement("div");
+					element.appendChild(sceneElement);
+
+					// const descriptionElement = document.createElement("div");
+					// descriptionElement.innerText = "Scene " + (i + 1);
+					// element.appendChild(descriptionElement);
+
+					// the element that represents the area we want to render the scene
+					scene.userData.element = sceneElement;
+					content.appendChild(element);
+
+					camera.position.z = 2;
+					scene.userData.camera = camera;
+
+					const controls = new OrbitControls(
+						scene.userData.camera,
+						scene.userData.element
+					);
+					controls.minDistance = 2;
+					controls.maxDistance = 5;
+					controls.enablePan = false;
+					controls.enableZoom = false;
+					scene.userData.controls = controls;
+
+					scenes.push(scene);
+
+					renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+					renderer.setPixelRatio(window.devicePixelRatio);
+					animate();
+				});
 			}
-			canvas {
-				display: block;
+		}
+
+		function updateSize() {
+			const width = canvas.clientWidth;
+			const height = canvas.clientHeight;
+
+			if (canvas.width !== width || canvas.height !== height) {
+					renderer.setSize(width, height, true);
 			}
-		</style>
-	</head>
-	<body ontouchstart="">
-		<script type="module">
+		}
 
-			import * as THREE from './js/three.module.js';
-			import { APP } from './js/app.js';
-			import { VRButton } from './js/VRButton.js';
+		function animate() {
+			render();
+			requestAnimationFrame(animate);
+		}
 
-			window.THREE = THREE; // Used by APP Scripts.
-			window.VRButton = VRButton; // Used by APP Scripts.
+		function render() {
+			updateSize();
 
-			var loader = new THREE.FileLoader();
-			loader.load( 'app.json', function ( text ) {
+			canvas.style.transform = `translateY(${window.scrollY}px)`;
 
-				var player = new APP.Player();
-				player.load( JSON.parse( text ) );
-				player.setSize( window.innerWidth, window.innerHeight );
-				player.play();
+			renderer.setClearColor(0xffffff);
+			renderer.setScissorTest(false);
+			renderer.clear();
 
-				document.body.appendChild( player.dom );
+			renderer.setClearColor(0x000);
+			renderer.setScissorTest(true);
 
-				window.addEventListener( 'resize', function () {
-					player.setSize( window.innerWidth, window.innerHeight );
+			scenes.forEach(function (scene) {
+				// so something moves
+				scene.children[1].rotation.y = Date.now() * 0.001;
 
-				} );
+				// get the element that is a place holder for where we want to
+				// draw the scene
+				const element = scene.userData.element;
 
-			} );
+				// get its position relative to the page's viewport
+				const rect = element.getBoundingClientRect();
 
-		</script>
-	</body>
+				// check if it's offscreen. If so skip it
+				if (
+					rect.bottom < 0 ||
+					rect.top > renderer.domElement.clientHeight ||
+					rect.right < 0 ||
+					rect.left > renderer.domElement.clientWidth
+				) {
+					return; // it's off screen
+				}
+
+				// set the viewport
+				const width = rect.right - rect.left;
+				const height = rect.bottom - rect.top;
+				const left = rect.left;
+				const bottom = renderer.domElement.clientHeight - rect.bottom;
+				renderer.setViewport(left, bottom, width, height);
+				renderer.setScissor(left, bottom, width, height);
+
+				const camera = scene.userData.camera;
+
+				camera.aspect = width / height; // not changing in this example
+				camera.updateProjectionMatrix();
+
+				//scene.userData.controls.update();
+
+				renderer.render(scene, camera);
+			});
+		}
+
+
+	</script>
+</body>
+
 </html>
