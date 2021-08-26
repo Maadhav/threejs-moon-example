@@ -62,7 +62,18 @@
 <body>
 	<canvas id="c"></canvas>
 
-	<div id="content" />
+	<div id="content" >
+		<div class="list-item" id="item1"></div>
+		<div class="list-item" id="item2"></div>
+		<div class="list-item" id="item3"></div>
+		<div class="list-item" id="item4"></div>
+		<div class="list-item" id="item5"></div>
+		<div class="list-item" id="item6"></div>
+		<div class="list-item" id="item7"></div>
+		<div class="list-item" id="item8"></div>
+		<div class="list-item" id="item9"></div>
+		<div class="list-item" id="item10"></div>
+	</div>
 	<script type="module">
 
 		import * as THREE from './js/three.module.js';
@@ -72,6 +83,8 @@
 		let canvas, renderer;
 
 		const scenes = [];
+		const cameras = [];
+		const list_of_events = [];
 
 		init();
 
@@ -81,8 +94,15 @@
 
 			for (let i = 0; i < 10; i++) {
 				var fileLoader = new THREE.FileLoader();
-
+				var events = {};
+				console.log(i)
+				const element = document.getElementById(`item${i + 1}`);
 				fileLoader.load("app.json", function (text) {
+					renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+					renderer.setPixelRatio(window.devicePixelRatio);
+					renderer.outputEncoding = THREE.sRGBEncoding;
+
+					var vrButton = VRButton.createButton(renderer);
 					var json = JSON.parse(text);
 					var loader = new THREE.ObjectLoader();
 
@@ -92,56 +112,143 @@
 
 					scene = loader.parse(json.scene)
 					camera = loader.parse(json.camera)
+					events = {
+						init: [],
+						start: [],
+						update: []
+					};
+					var scriptWrapParams = 'player,renderer,scene,camera';
+					var scriptWrapResultObj = {};
 
-					// make a list item
-					const element = document.createElement("div");
-					element.className = "list-item";
+					for (var eventKey in events) {
 
+						scriptWrapParams += ',' + eventKey;
+						scriptWrapResultObj[eventKey] = eventKey;
+
+					}
+
+					var scriptWrapResult = JSON.stringify(scriptWrapResultObj).replace(/\"/g, '');
+
+					for (var uuid in json.scripts) {
+
+						var object = scene.getObjectByProperty('uuid', uuid, true);
+
+						if (object === undefined) {
+
+							console.warn('APP.Player: Script without object.', uuid);
+							continue;
+
+						}
+
+						var scripts = json.scripts[uuid];
+
+						for (var i = 0; i < scripts.length; i++) {
+
+							var script = scripts[i];
+
+							var functions = (new Function(scriptWrapParams, script.source + '\nreturn ' + scriptWrapResult + ';').bind(object))(this, renderer, scene, camera);
+
+							for (var name in functions) {
+
+								if (functions[name] === undefined) continue;
+
+								if (events[name] === undefined) {
+
+									console.warn('APP.Player: Event type not supported (', name, ')');
+									continue;
+
+								}
+
+
+								events[name].push(functions[name].bind(object));
+
+							}
+
+						}
+					}
 					const sceneElement = document.createElement("div");
 					element.appendChild(sceneElement);
 
-					// const descriptionElement = document.createElement("div");
-					// descriptionElement.innerText = "Scene " + (i + 1);
-					// element.appendChild(descriptionElement);
+					const descriptionElement = document.createElement("div");
+					descriptionElement.innerText = "Scene " + (i + 1);
+					element.appendChild(descriptionElement);
 
 					// the element that represents the area we want to render the scene
 					scene.userData.element = sceneElement;
 					content.appendChild(element);
 
-					camera.position.z = 2;
+					// camera.position.z = 5;
 					scene.userData.camera = camera;
 
 					const controls = new OrbitControls(
 						scene.userData.camera,
 						scene.userData.element
 					);
-					controls.minDistance = 2;
-					controls.maxDistance = 5;
+					// controls.minDistance = 2;
+					// controls.maxDistance = 5;
 					controls.enablePan = false;
 					controls.enableZoom = false;
 					scene.userData.controls = controls;
 
 					scenes.push(scene);
+					cameras.push(camera);
+					list_of_events.push(events)
 
-					renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
-					renderer.setPixelRatio(window.devicePixelRatio);
-					animate();
+					play();
 				});
 			}
 		}
+
+		function dispatch(array, event) {
+
+			for (var i = 0, l = array.length; i < l; i++) {
+
+				array[i](event);
+
+			}
+
+		}
+
+
+		var time = [], startTime = [], prevTime = [];
+
+		function animation(scene, i) {
+			time = performance.now();
+
+			try {
+
+				dispatch(list_of_events[i].update, { time: time[i] - startTime[i], delta: time[i] - prevTime[i] });
+
+			} catch (e) {
+
+				console.error((e.message || e), (e.stack || ''));
+
+			}
+
+			renderer.render(scene, cameras[i]);
+
+			prevTime[i] = time[i];
+
+		}
+
+		document.addEventListener('resize', updateSize)
 
 		function updateSize() {
 			const width = canvas.clientWidth;
 			const height = canvas.clientHeight;
 
 			if (canvas.width !== width || canvas.height !== height) {
-					renderer.setSize(width, height, true);
+				renderer.setSize(width, height, true);
 			}
 		}
 
-		function animate() {
+		function play() {
+			for (let index = 0; index < scenes.length; index++) {
+				startTime[index] = prevTime[index] = performance.now();
+				
+			}
 			render();
-			requestAnimationFrame(animate);
+			requestAnimationFrame(play);
 		}
 
 		function render() {
@@ -155,10 +262,11 @@
 
 			renderer.setClearColor(0x000);
 			renderer.setScissorTest(true);
+			var time, startTime, prevTime;
 
-			scenes.forEach(function (scene) {
+			scenes.forEach(function (scene, i) {
 				// so something moves
-				scene.children[1].rotation.y = Date.now() * 0.001;
+				// scene.children[1].rotation.y = Date.now() * 0.001;
 
 				// get the element that is a place holder for where we want to
 				// draw the scene
@@ -190,9 +298,9 @@
 				camera.aspect = width / height; // not changing in this example
 				camera.updateProjectionMatrix();
 
-				//scene.userData.controls.update();
-
-				renderer.render(scene, camera);
+				animation(scene, i)
+				prevTime = time;
+				renderer.render(scene, cameras[i]);
 			});
 		}
 
